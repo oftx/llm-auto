@@ -2,7 +2,6 @@ import subprocess
 import platform
 import threading
 import os
-import shutil
 from typing import Optional, List
 
 class CommandExecutor:
