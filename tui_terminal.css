@@ -1,0 +1,15 @@
+/* tui_terminal.css */
+#app-grid {
+    layout: vertical;
+}
+
+#log {
+    border: tall $primary;
+    height: 90%; /* 给日志区域大部分空间 */
+}
+
+#input {
+    border: tall $secondary;
+    height: 10%;
+    min-height: 3;
+}
