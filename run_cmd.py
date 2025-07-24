@@ -2,6 +2,7 @@ import subprocess
 import platform
 import threading
 import os
+import time
 from typing import Optional, List
 
 class CommandExecutor:
@@ -33,10 +34,6 @@ class CommandExecutor:
         self._executed = False
         return self # 支持链式调用
 
-    # ... _stream_reader, _run_streaming, _run_blocking 等方法保持不变 ...
-    # 它们现在会使用 self.command_string 和 self.cwd
-    
-    # run 方法稍微调整，以确保 reset() 已被调用
     def run(self, stream_output: bool = False) -> 'CommandExecutor':
         if not self.command_string:
             raise RuntimeError("执行器未配置命令。请在使用 run() 前先调用 reset()。")
@@ -52,9 +49,7 @@ class CommandExecutor:
         self._executed = True
         return self
 
-    # ... (所有属性和内部方法保持不变) ...
     def _stream_reader(self, stream, output_lines: List[str], prefix: str, print_stream: bool):
-        # 此方法不变
         for line in iter(stream.readline, ''):
             if print_stream:
                 print(f"{prefix} {line.strip()}", flush=True)
@@ -62,7 +57,6 @@ class CommandExecutor:
         stream.close()
 
     def _run_streaming(self):
-        # 此方法不变，它会使用 self.command_string 和 self.cwd
         process = subprocess.Popen(
             self.command_string, shell=self.shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding=self.encoding, cwd=self.cwd
@@ -81,7 +75,6 @@ class CommandExecutor:
         )
 
     def _run_blocking(self):
-        # 此方法不变，它会使用 self.command_string 和 self.cwd
         self._result = subprocess.run(
             self.command_string, shell=self.shell, capture_output=True,
             text=True, encoding=self.encoding, cwd=self.cwd
@@ -113,10 +106,8 @@ class TerminalSession:
         self._executor = CommandExecutor() # <<< 核心变化：创建并持有实例
         print(f"终端会话已启动，当前目录: {self.cwd}")
 
-    # ... prompt 和 _handle_cd 方法不变 ...
     @property
     def prompt(self) -> str:
-        # 此方法不变
         display_path = self.cwd
         if platform.system() != "Windows":
             home_dir = os.path.expanduser("~")
@@ -125,7 +116,6 @@ class TerminalSession:
         return f"{display_path} $ "
         
     def _handle_cd(self, target_dir: str) -> bool:
-        # 此方法不变
         new_path = os.path.abspath(os.path.join(self.cwd, target_dir))
         if os.path.isdir(new_path):
             self.cwd = new_path
@@ -146,66 +136,122 @@ class TerminalSession:
             target_dir = command_string[3:].strip()
             success = self._handle_cd(target_dir)
         else:
-            # <<< 核心变化：复用 executor 实例
             self._executor.reset(command_string, self.cwd).run(stream_output=stream_output)
             success = self._executor.success
-            
             if not success and not stream_output and self._executor.stderr:
                 print(self._executor.stderr.strip())
 
         if verbose: print(f"--- [结束 (成功: {success})] ---")
         return success
 
-    # ... execute_batch 和 run_interactive 方法完全不变，因为它们依赖于 execute() ...
-    def execute_batch(self, commands: List[str], stream_output: bool = True) -> bool:
-        # 此方法逻辑不变
-        print(f"\n--- [开始批量执行 {len(commands)} 条命令] ---")
+    def execute_batch(self, commands: List[str], stream_output: bool = False, verbose: bool = True) -> bool:
+        """
+        按顺序执行一个命令列表。如果任何命令失败，则中断执行。
+        
+        参数:
+        commands (List[str]): 要执行的命令字符串列表。
+        stream_output (bool): 是否实时打印子命令的输出。在静默模式下通常为 False。
+        verbose (bool): 是否打印每一步的执行信息。设置为 False 以获得最大性能。
+        """
+        if verbose:
+            print(f"\n--- [开始批量执行 {len(commands)} 条命令 (详细模式)] ---")
+        
+        start_time = time.perf_counter()
+
         for i, command in enumerate(commands):
-            print(f"\n[步骤 {i+1}/{len(commands)}] > {command}")
+            if verbose:
+                print(f"\n[步骤 {i+1}/{len(commands)}] > {command}")
+            
+            # 关闭 execute 自身的 verbose，由本方法统一控制
             success = self.execute(command, stream_output=stream_output, verbose=False)
+            
             if not success:
                 print(f"\n[!! 批量执行失败] 在步骤 {i+1} 处中断: '{command}'")
+                # 如果执行器有错误输出，也一并打印出来
+                if self._executor._executed and self._executor.stderr:
+                    print("错误详情:", self._executor.stderr.strip())
                 print("--- [批量执行已终止] ---")
                 return False
-        print("\n--- [批量执行成功] 所有命令均已成功执行 ---")
+        
+        end_time = time.perf_counter()
+        duration = end_time - start_time
+
+        if verbose:
+            print(f"\n--- [批量执行成功] 所有命令均已成功执行 ---")
+        else:
+            # 在静默模式下，成功后只打印一条最终的摘要
+            print(f"--- [批量执行成功] {len(commands)} 条命令在 {duration:.4f} 秒内完成。 ---")
+            
         return True
     
-    def run_interactive(self):
-        # 此方法逻辑不变
-        pass
+def run_interactive(self):
+        """启动一个交互式循环，模拟真实终端。"""
+        while True:
+            try:
+                command = input(self.prompt)
+                if command.lower() in ["exit", "quit"]:
+                    print("终端会话结束。")
+                    break
+                self.execute(command)
+            except KeyboardInterrupt: # Ctrl+C
+                print("\n终端会话结束。")
+                break
 
-# --- 主程序入口，功能和之前一样，但内部实现更高效 ---
 if __name__ == "__main__":
-    import time
-
-    # 创建一个包含大量命令的列表来测试性能
-    # 我们将创建和删除100个小文件
-    num_files = 1000
-    batch_create = [f"echo 'file {i}' > test_{i}.txt" for i in range(num_files)]
-    batch_delete = [f"rm test_{i}.txt" if platform.system() != "Windows" else f"del test_{i}.txt" for i in range(num_files)]
+    # 创建一个大型批量任务
+    num_ops = 1000
+    batch_create = [f"echo 'file {i}' > test_{i}.txt" for i in range(num_ops)]
+    batch_delete = [f"del test_{i}.txt" if platform.system() == "Windows" else f"rm test_{i}.txt" for i in range(num_ops)]
     
-    # 完整的批量任务
     large_batch = (
-        ["mkdir large_batch_test", "cd large_batch_test"] +
+        ["mkdir perf_test_dir", "cd perf_test_dir"] +
         batch_create +
         batch_delete +
-        ["cd ..", "rmdir large_batch_test"]
+        ["cd ..", "rmdir perf_test_dir"]
     )
+    total_commands = len(large_batch)
+    print(f"准备执行包含 {total_commands} 条命令的大型批量任务...")
+
+    # --- 测试1: 详细模式 (Verbose Mode) ---
+    print("\n" + "="*50)
+    print(">>> 测试 1: 详细模式 (verbose=True)")
     
-    print(f">>> 准备执行包含 {len(large_batch)} 条命令的大型批量任务...")
+    # 清理环境
+    if os.path.exists("perf_test_dir"):
+        import shutil
+        shutil.rmtree("perf_test_dir")
+
+    session_verbose = TerminalSession(start_dir=".")
+    start_verbose = time.perf_counter()
+    session_verbose.execute_batch(large_batch, stream_output=False, verbose=True)
+    end_verbose = time.perf_counter()
+    duration_verbose = end_verbose - start_verbose
+    print(f"\n[性能报告] 详细模式耗时: {duration_verbose:.4f} 秒")
+
+
+    # --- 测试2: 静默模式 (Silent Mode) ---
+    print("\n" + "="*50)
+    print(">>> 测试 2: 静默模式 (verbose=False)")
 
     # 清理环境
-    if os.path.exists("large_batch_test"):
+    if os.path.exists("perf_test_dir"):
         import shutil
-        shutil.rmtree("large_batch_test")
+        shutil.rmtree("perf_test_dir")
 
-    session = TerminalSession()
+    session_silent = TerminalSession(start_dir=".")
+    start_silent = time.perf_counter()
+    # 注意这里 verbose=False
+    session_silent.execute_batch(large_batch, stream_output=False, verbose=False)
+    end_silent = time.perf_counter()
+    duration_silent = end_silent - start_silent
+    # 在静默模式下，execute_batch 已经打印了耗时，这里再打印一次总时间
+    print(f"[性能报告] 静默模式总耗时: {duration_silent:.4f} 秒")
     
-    start_time = time.perf_counter()
-    # 使用非流式输出以最大化测试对象创建的性能差异
-    session.execute_batch(large_batch, stream_output=False)
-    end_time = time.perf_counter()
-    
-    print(f"\n[性能报告] 使用复用 Executor 执行 {len(large_batch)} 条命令耗时: {end_time - start_time:.4f} 秒")
-    
-    # 你可以尝试对比上一版代码的运行时间，会发现此版本在处理大量命令时速度更快。
+    # --- 性能对比总结 ---
+    print("\n" + "="*50)
+    print(">>> 性能对比总结 <<<")
+    print(f"详细模式 (带大量打印): {duration_verbose:.4f} 秒")
+    print(f"静默模式 (无过程打印): {duration_silent:.4f} 秒")
+    if duration_silent > 0:
+        speedup = duration_verbose / duration_silent
+        print(f"性能提升了约 {speedup:.2f} 倍！")
