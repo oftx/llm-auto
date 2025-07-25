@@ -1,0 +1,31 @@
+Script started on Fri Jul 25 21:46:09 2025
+ls -l
+python --version
+[1m[7m%[27m[1m[0m                                                                                k~/Dev/llm-auto\]7;file://mac.local/Users/user/Dev/llm-auto\[0m[27m[24m[J[01;32m➜  [36mllm-auto[00m [K[?1h=[?2004hlls -l[?1l>[?2004l
+kls\total 48
+drwxr-xr-x@  3 user  staff    96  7 25 01:09 [1m[36m__pycache__[39;49m[0m
+-rw-r--r--   1 user  staff   255  7 25 21:45 ai_prompt.txt
+drwxr-xr-x  13 user  staff   416  7 25 21:39 [1m[36marchived[39;49m[0m
+-rw-r--r--   1 user  staff  3434  7 25 21:46 auto_tmux.py
+drwxr-xr-x@  2 user  staff    64  7 25 21:30 [1m[36mlogs[39;49m[0m
+-rw-r--r--@  1 user  staff  1088  7 20 17:06 README.md
+-rw-r--r--@  1 user  staff    43  7 25 21:46 session_log.txt
+-rw-r--r--@  1 user  staff  3470  7 25 00:05 system_prompt.md
+-rw-r--r--@  1 user  staff   459  7 25 13:43 todo.txt
+[1m[7m%[27m[1m[0m                                                                                k~/Dev/llm-auto\]7;file://mac.local/Users/user/Dev/llm-auto\[0m[27m[24m[J[01;32m➜  [36mllm-auto[00m [K[?1h=[?2004hppython --version[?1l>[?2004l
+kpython\Python 3.12.10
+[1m[7m%[27m[1m[0m                                                                                k~/Dev/llm-auto\]7;file://mac.local/Users/user/Dev/llm-auto\[0m[27m[24m[J[01;32m➜  [36mllm-auto[00m [K[?1h=[?2004h[0m[27m[24m[J[01;32m➜  [36mllm-auto[00m [01;34mgit:([31mmain[34m) [33m✗[00m [Keecho '正在创建一个 Python 交互式会话...'[?1l>[?2004l
+kecho\正在创建一个 Python 交互式会话...
+[1m[7m%[27m[1m[0m                                                                                k~/Dev/llm-auto\]7;file://mac.local/Users/user/Dev/llm-auto\[0m[27m[24m[J[01;32m➜  [36mllm-auto[00m [01;34mgit:([31mmain[34m) [33m✗[00m [K[?1h=[?2004hppython[?1l>[?2004l
+kpython\a = 10
+b = 20
+Python 3.12.10 (main, Apr  8 2025, 11:35:47) [Clang 17.0.0 (clang-1700.0.13.3)] on darwin
+Type "help", "copyright", "credits" or "license" for more information.
+>>> a = 10
+>>> b = 20
+>>> print(f'a + b = {a + b}')
+a + b = 30
+>>> exit()
+[1m[7m%[27m[1m[0m                                                                                k~/Dev/llm-auto\]7;file://mac.local/Users/user/Dev/llm-auto\[0m[27m[24m[J[01;32m➜  [36mllm-auto[00m [01;34mgit:([31mmain[34m) [33m✗[00m [K[?1h=[?2004heexit[?1l>[?2004l
+kexit\
+Script done on Fri Jul 25 21:46:17 2025
