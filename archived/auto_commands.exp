@@ -1,0 +1,11 @@
+#!/usr/bin/expect -f
+spawn zsh
+expect "$ "
+send "pwd\r"
+expect "$ "
+send "cd ..\r"
+expect "$ "
+send "pwd\r"
+expect "$ "
+send "ls\r"
+expect eof
