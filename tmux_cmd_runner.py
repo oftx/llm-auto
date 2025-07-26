@@ -53,11 +53,33 @@ def _execute_str(command_string: str, term_instance: 'TmuxTerminal') -> bool:
 
     print(f"> {repr(command_string)}")
 
+    # 等待提示符准备就绪
+    def wait_for_prompt_ready(max_attempts=10, wait_interval=0.2):
+        """等待终端提示符准备就绪"""
+        for attempt in range(max_attempts):
+            time.sleep(wait_interval)
+            output_lines = pane.capture_pane()
+            if output_lines:
+                last_line = output_lines[-1].strip()
+                # 检查最后一行是否看起来像提示符（包含常见的提示符字符）
+                if any(char in last_line for char in ['$', '>', '➜', '#', '%']) and len(last_line) > 0:
+                    # 再等待一小段时间确保提示符完全加载
+                    time.sleep(0.1)
+                    return True
+        return False
+
+    # 等待提示符准备
+    if not wait_for_prompt_ready():
+        print(f"[⚠️] 警告: 提示符可能未完全加载，继续执行命令...")
+
     channel_name = f"tmux-wait-{term_instance._command_counter}"
     exit_code_marker = f"TMUX_CMD_EXIT_CODE_{term_instance._command_counter}"
     term_instance._command_counter += 1
 
+    # 发送主要命令
     pane.send_keys(command_string, enter=True)
+    
+    # 发送退出码检查命令
     pane.send_keys(f'echo "{exit_code_marker}:$?"', enter=True)
     pane.send_keys(f'tmux wait-for -S "{channel_name}"', enter=True)
     
@@ -79,8 +101,14 @@ def _execute_str(command_string: str, term_instance: 'TmuxTerminal') -> bool:
             except (IndexError, ValueError): continue
     
     if exit_code == -1:
-        print(f"[!!] 无法确定命令 '{command_string}' 的退出状态码。")
-        return False
+        print(f"[⚠️] 无法确定命令 '{command_string}' 的退出状态码。")
+        choice = input("    请检查 tmux 会话的实际运行情况，并决定是否继续执行？(y/N): ").lower().strip()
+        if choice == 'y':
+            print("    用户选择继续执行。")
+            return True
+        else:
+            print("    用户选择中止。")
+            return False
 
     accepted_codes = ExecutionPolicy.get_accepted_codes(command_string)
     
@@ -129,14 +157,22 @@ class TmuxTerminal:
             print(f"正在创建 Tmux 会话 '{self.session_name}'...")
             self._session = self._server.new_session(session_name=self.session_name)
         
+        history_limit = 50000
+        self._session.set_option('history-limit', history_limit) 
+        # print(f"ⓘ [Tmux 配置] 已将当前会话的历史记录上限设置为 {history_limit} 行。")
+        
         self._pane = self._session.active_window.active_pane
+        
+        # 等待会话完全初始化
+        time.sleep(0.5)  # 给tmux会话一些时间来完全初始化
+        
         print(f"会话 '{self.session_name}' 已准备就绪。")
         print(f"✨ 可在新终端使用以下命令连接会话: tmux attach -t {self.session_name}")
         return self
     
     def capture_clean_output(self) -> str:
         if not self._pane: return "[!!] 错误：无法捕获输出，因为 tmux 窗格不可用。"
-        full_output: List[str] = self._pane.capture_pane()
+        full_output: List[str] = self._pane.cmd("capture-pane", "-p", "-S-", "-E-").stdout
         
         clean_lines = [
             line for line in full_output 
@@ -152,20 +188,24 @@ class TmuxTerminal:
         return '\n'.join(final_output_lines).strip()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        print("\n----------------------------------------")
-        print("所有命令已执行完毕或被中止")
-        print("----------------------------------------")
-        choice = input("是否需要关闭此 Tmux 会话？(y/N): ").lower().strip()
+        # print("\n----------------------------------------")
+        # print("运行结束")
+        # print("----------------------------------------")
+        choice = input("运行完成，是否需要关闭此 Tmux 会话？(y/N): ").lower().strip()
         if choice == 'y':
             print(f"正在关闭 Tmux 会话 '{self.session_name}'...")
             if self._server.has_session(self.session_name): self._server.kill_session(self.session_name)
             print("会话已关闭。")
         else:
-            print(f"\n脚本已结束，Tmux 会话 '{self.session_name}' 仍在后台运行（如果未手动退出）。")
+            print(f"脚本已结束，Tmux 会话 '{self.session_name}' 仍在后台运行（如果未退出）。")
 
     def execute(self, command: Union[str, List[str]]):
-        if self._pane: self._pane.clear()
+        if self._pane:
+            self._pane.clear()
+            self._pane.cmd('clear-history')
+            time.sleep(0.2)  # 给清理操作一些时间
         _execute_dispatcher(command, self)
+        CommandResult.save_from_terminal(self)
 
 def print_result_block(title: str, result_provider):
     print("\n" + "="*20 + f" {title} " + "="*20)
@@ -178,35 +218,12 @@ def print_result_block(title: str, result_provider):
 
 if __name__ == "__main__":
     try:
-        with TmuxTerminal(session_name="static-policy-demo") as term:
+        with TmuxTerminal(session_name="hello") as term:
             
-            # --- 测试用例 1: 简单的单行命令 ---
-            term.execute("echo 'Hello from a single command!'")
+            # 简单测试命令
+            term.execute("date")
             CommandResult.save_from_terminal(term)
-            print_result_block("测试用例 1: 简单命令", CommandResult.get)
-
-            # --- 测试用例 2: 包含换行符的多行命令 ---
-            multiline_command = "for i in {1..3}; do echo \"Loop iteration $i\"; done"
-            term.execute(multiline_command)
-            CommandResult.save_from_terminal(term)
-            print_result_block("测试用例 2: 多行命令", CommandResult.get)
-
-            # --- 测试用例 3: 使用策略处理 'grep' ---
-            term.execute([
-                "echo 'unique content' > test_file.txt",
-                "grep 'non_existent' test_file.txt" # 返回 1, 但被策略接受
-            ])
-            CommandResult.save_from_terminal(term)
-            print_result_block("测试用例 3: Grep 策略 (预期无输出)", CommandResult.get)
-
-            # --- 测试用例 4: 真正的失败与交互式处理 ---
-            print("\n>>> 下一个测试将触发交互式失败提示，请做好准备...")
-            term.execute("ls /non_existent_directory_for_sure")
-            CommandResult.save_from_terminal(term)
-            print_result_block("测试用例 4: 交互式失败", CommandResult.get)
-            
-            # --- 清理 ---
-            term.execute("rm test_file.txt")
+            print_result_block("日期命令测试", CommandResult.get)
 
     except FileNotFoundError:
         print("\n[!!] 致命错误: 'tmux' 命令未找到。请确保 tmux 已安装并位于您的 PATH 中。")
