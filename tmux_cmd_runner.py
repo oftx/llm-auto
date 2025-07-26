@@ -5,26 +5,25 @@ from functools import singledispatch
 from typing import Optional, List, Union, Tuple, Dict
 
 class ExecutionPolicy:
-    """封装命令执行成功/失败规则的策略类。"""
-    def __init__(self):
-        self._rules: Dict[str, List[int]] = {}
-        self.default_accepted_codes = [0]
+    """一个封装了命令执行成功/失败规则的静态策略类。"""
+    _rules: Dict[str, List[int]] = {
+        "grep": [0, 1],
+        "diff": [0, 1]
+    }
+    default_accepted_codes: List[int] = [0]
 
     @classmethod
-    def with_common_rules(cls) -> 'ExecutionPolicy':
-        policy = cls()
-        policy.add_rule("grep", accepted_codes=[0, 1])
-        policy.add_rule("diff", accepted_codes=[0, 1])
-        return policy
+    def add_rule(cls, command_prefix: str, accepted_codes: List[int]):
+        """为以特定前缀开头的命令添加一条全局规则。"""
+        cls._rules[command_prefix] = accepted_codes
 
-    def add_rule(self, command_prefix: str, accepted_codes: List[int]):
-        self._rules[command_prefix] = accepted_codes
-
-    def get_accepted_codes(self, command_string: str) -> List[int]:
-        for prefix, codes in self._rules.items():
+    @classmethod
+    def get_accepted_codes(cls, command_string: str) -> List[int]:
+        """根据给定的命令字符串，获取其可接受的退出码列表。"""
+        for prefix, codes in cls._rules.items():
             if command_string.strip().startswith(prefix):
                 return codes
-        return self.default_accepted_codes
+        return cls.default_accepted_codes
 
 class CommandResult:
     """一个用于管理和返回命令执行结果的静态类。"""
@@ -83,7 +82,7 @@ def _execute_str(command_string: str, term_instance: 'TmuxTerminal') -> bool:
         print(f"[!!] 无法确定命令 '{command_string}' 的退出状态码。")
         return False
 
-    accepted_codes = term_instance.policy.get_accepted_codes(command_string)
+    accepted_codes = ExecutionPolicy.get_accepted_codes(command_string)
     
     if exit_code in accepted_codes:
         return True
@@ -113,15 +112,14 @@ def _execute_list(command_list: Union[List[str], Tuple[str]], term_instance: 'Tm
     return True
 
 class TmuxTerminal:
-    """一个使用策略驱动的、用于顺序执行命令的 tmux 会话管理器。"""
-    def __init__(self, session_name: str, start_dir: Optional[str] = None, policy: Optional[ExecutionPolicy] = None):
+    """一个使用全局策略驱动的、用于顺序执行命令的 tmux 会话管理器。"""
+    def __init__(self, session_name: str, start_dir: Optional[str] = None):
         self.session_name = session_name
         self.start_dir = os.path.abspath(start_dir or os.getcwd())
         self._server = libtmux.Server()
         self._session: Optional[libtmux.Session] = None
         self._pane: Optional[libtmux.Pane] = None
         self._command_counter = 0
-        self.policy = policy or ExecutionPolicy()
 
     def __enter__(self):
         self._session = self._server.find_where({"session_name": self.session_name})
@@ -137,10 +135,7 @@ class TmuxTerminal:
         return self
     
     def capture_clean_output(self) -> str:
-        """捕获 tmux 窗格的当前内容，并清理掉所有内部使用的标记。"""
-        if not self._pane:
-            return "[!!] 错误：无法捕获输出，因为 tmux 窗格不可用。"
-
+        if not self._pane: return "[!!] 错误：无法捕获输出，因为 tmux 窗格不可用。"
         full_output: List[str] = self._pane.capture_pane()
         
         clean_lines = [
@@ -166,7 +161,7 @@ class TmuxTerminal:
             if self._server.has_session(self.session_name): self._server.kill_session(self.session_name)
             print("会话已关闭。")
         else:
-            print(f"\n脚本已结束，Tmux 会话 '{self.session_name}' 仍在后台运行。")
+            print(f"\n脚本已结束，Tmux 会话 '{self.session_name}' 仍在后台运行（如果未手动退出）。")
 
     def execute(self, command: Union[str, List[str]]):
         if self._pane: self._pane.clear()
@@ -183,12 +178,10 @@ def print_result_block(title: str, result_provider):
 
 if __name__ == "__main__":
     try:
-        policy = ExecutionPolicy.with_common_rules()
-
-        with TmuxTerminal(session_name="production-demo", policy=policy) as term:
+        with TmuxTerminal(session_name="static-policy-demo") as term:
             
             # --- 测试用例 1: 简单的单行命令 ---
-            term.execute("echo 'Hello\n from a single command!'")
+            term.execute("echo 'Hello from a single command!'")
             CommandResult.save_from_terminal(term)
             print_result_block("测试用例 1: 简单命令", CommandResult.get)
 
@@ -217,5 +210,3 @@ if __name__ == "__main__":
 
     except FileNotFoundError:
         print("\n[!!] 致命错误: 'tmux' 命令未找到。请确保 tmux 已安装并位于您的 PATH 中。")
-    except Exception as e:
-        print(f"\n[!!] 发生未处理的异常: {e}")
