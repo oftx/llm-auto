@@ -76,12 +76,8 @@ def _execute_str(command_string: str, term_instance: 'TmuxTerminal') -> bool:
     exit_code_marker = f"TMUX_CMD_EXIT_CODE_{term_instance._command_counter}"
     term_instance._command_counter += 1
 
-    # 发送主要命令
-    pane.send_keys(command_string, enter=True)
-    
-    # 发送退出码检查命令
-    pane.send_keys(f'echo "{exit_code_marker}:$?"', enter=True)
-    pane.send_keys(f'tmux wait-for -S "{channel_name}"', enter=True)
+    full_command = f"{command_string}\recho \"{exit_code_marker}:$?\"\rtmux wait-for -S \"{channel_name}\"\r"
+    pane.send_keys(full_command, enter=False)
     
     try:
         term_instance._server.cmd('wait-for', channel_name)
