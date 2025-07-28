@@ -37,7 +37,7 @@ async def run_cmd_and_get_result(term: TmuxTerminal, cmd: Union[str, List[str]])
         # 将底层的执行错误包装成一个运行时错误
         raise RuntimeError(f"命令执行期间发生错误: {e}") from e
 
-async def execute_and_log_task(term: TmuxTerminal, commands: Union[str, List[str]]) -> None:
+async def execute_and_log_task(term: TmuxTerminal, commands: Union[str, List[str]], wsc: WebSocketClient, sender_id: str) -> None:
     """
     一个包装器，作为独立的后台任务运行。
     它调用非阻塞的命令执行函数并打印结果或错误。
@@ -47,10 +47,13 @@ async def execute_and_log_task(term: TmuxTerminal, commands: Union[str, List[str
         # 等待在独立线程中运行的命令完成
         result = await run_cmd_and_get_result(term, commands)
         # print(f"命令 '{str(commands)[:50]}...' 的结果是:")
+        await wsc.send_message(sender_id, json.dumps({"success":True,"result":result}))
         print(result)
     except (TypeError, ValueError, RuntimeError) as e:
+        await wsc.send_message(sender_id, json.dumps({"success":False}))
         print(f"命令处理中出现错误: {e}")
     except Exception as e:
+        await wsc.send_message(sender_id, json.dumps({"success":False}))
         print(f"执行任务时发生未知错误: {e}")
         traceback.print_exc()
 
@@ -65,10 +68,12 @@ if __name__ == "__main__":
             try:
                 msg_dict = json.loads(message)
                 commands = msg_dict['m']['data']
+                sender_id = msg_dict['s']
                 if term.is_running_cmd:
+                    await self.send_message(sender_id, json.dumps({"success":False}))
                     print("正在运行中，请稍后传入命令")
                     return
-                asyncio.create_task(execute_and_log_task(term, commands))
+                asyncio.create_task(execute_and_log_task(term, commands, self, sender_id))
             except json.JSONDecodeError:
                 print("传入数据格式错误! 消息必须是有效的 JSON。")
             except KeyError:
