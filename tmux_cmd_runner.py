@@ -143,6 +143,7 @@ class TmuxTerminal:
     """一个使用全局策略驱动的、用于顺序执行命令的 tmux 会话管理器。"""
     def __init__(self, session_name: str, start_dir: Optional[str] = None):
         self.session_name = session_name
+        self.is_running_cmd = False
         self.start_dir = os.path.abspath(start_dir or os.getcwd())
         self._server = libtmux.Server()
         self._session: Optional[libtmux.Session] = None
@@ -154,8 +155,8 @@ class TmuxTerminal:
         if self._session:
             print(f"已连接到现有 Tmux 会话 '{self.session_name}'...")
         else:
-            print(f"正在创建 Tmux 会话 '{self.session_name}'...")
             self._session = self._server.new_session(session_name=self.session_name)
+            print(f"已创建 Tmux 会话 '{self.session_name}'...")
         
         history_limit = 50000
         self._session.set_option('history-limit', history_limit) 
@@ -166,7 +167,7 @@ class TmuxTerminal:
         # 等待会话完全初始化
         time.sleep(0.5)  # 给tmux会话一些时间来完全初始化
         
-        print(f"会话 '{self.session_name}' 已准备就绪。")
+        # print(f"会话 '{self.session_name}' 已准备就绪。")
         print(f"✨ 可在新终端使用以下命令连接会话: tmux attach -t {self.session_name}")
         return self
     
@@ -200,12 +201,19 @@ class TmuxTerminal:
             print(f"脚本已结束，Tmux 会话 '{self.session_name}' 仍在后台运行（如果未退出）。")
 
     def execute(self, command: Union[str, List[str]]):
+        if self.is_running_cmd:
+            print("正在运行中，请稍后传入命令")
+            return
+        self.is_running_cmd = True
         if self._pane:
             self._pane.clear()
             self._pane.cmd('clear-history')
             time.sleep(0.2)  # 给清理操作一些时间
-        _execute_dispatcher(command, self)
-        CommandResult.save_from_terminal(self)
+        try:
+            _execute_dispatcher(command, self)
+            CommandResult.save_from_terminal(self)
+        finally:
+            self.is_running_cmd = False
 
 def print_result_block(title: str, result_provider):
     print("\n" + "="*20 + f" {title} " + "="*20)
