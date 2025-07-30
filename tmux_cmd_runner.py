@@ -173,47 +173,35 @@ class TmuxTerminal:
         full_output: List[str] = self._pane.cmd("capture-pane", "-p", "-S-", "-E-").stdout
 
         processed_lines = []
-        lines_iter = iter(full_output) # 使用迭代器以便可以消耗后续行
+        lines_iter = iter(full_output)
+        junk_marker = ';echo "TMUX_CMD_EXIT_CODE_'
 
         for line in lines_iter:
-            # 我们注入的命令的特征标记
-            junk_marker = ';echo "TMUX_CMD_EXIT_CODE_'
-            
-            # 情况1: 当前行是纯粹的退出码报告行 (例如, "TMUX_CMD_EXIT_CODE_0:0")，直接跳过。
             if line.strip().startswith("TMUX_CMD_EXIT_CODE_") and ":" in line:
                 continue
-            
-            # 情况2: 当前行包含了用户命令和我们注入的“脚手架”命令。
+
             if junk_marker in line:
-                # 通过标记分割字符串，只保留我们需要的用户命令部分。
                 clean_line = line.split(junk_marker)[0]
                 processed_lines.append(clean_line)
-                
-                # 检查注入的命令是否在当前行就已完整结束。
-                # 完整的注入命令以一个双引号 `"` 结尾。
-                if 'tmux wait-for -S' in line and line.rstrip().endswith('"'):
-                    # 如果是，则无需进一步处理，继续下一个循环。
-                    pass
-                else:
-                    # 如果不是，说明命令已换行，我们需要消耗并丢弃后续的残留行。
-                    # 持续消耗迭代器中的行，直到找到包含结束双引号 `"` 的那一行。
-                    for next_line in lines_iter:
-                        if '"' in next_line:
-                            break # 找到了残留的最后一部分，跳出内层循环。
-                
-                # 跳过当前行的剩余部分，继续外层循环。
+
+                if 'tmux wait-for -S' in line:
+                    try:
+                        for next_line in lines_iter:
+                            if 'tmux-wait-' in next_line:
+                                break
+                    except StopIteration:
+                        pass
                 continue
-                
-            # 情况3: 当前行是正常的命令输出，直接保留。
+
             processed_lines.append(line)
-        
-        # 对清理后的行进行最终处理，移除可能产生的连续空行。
+
         final_output_lines = []
         for i, line in enumerate(processed_lines):
-            if i > 0 and not line.strip() and not processed_lines[i-1].strip():
+            stripped_line = line.strip()
+            if i > 0 and not stripped_line and not processed_lines[i-1].strip():
                 continue
             final_output_lines.append(line)
-        
+
         return '\n'.join(final_output_lines).strip()
 
 
@@ -241,20 +229,20 @@ class TmuxTerminal:
         finally:
             self.is_running_cmd = False
 
-def print_result_block(title: str, result_provider):
-    print("\n" + "="*20 + f" {title} " + "="*20)
+def print_result_block(result_provider):
     result = result_provider()
-    if result:
-        print(result)
-    else:
-        print("(无输出)")
-    print("="* (42 + len(title)))
+    if not result:
+        print("| (no output)")
+        return
+    lines = result.splitlines()
+    for line in lines:
+        print(f"| {line.rstrip()}")
 
 if __name__ == "__main__":
     try:
         with TmuxTerminal(session_name="hello") as term:
             term.execute("date")
-            print_result_block("日期命令测试", CommandResult.get)
+            print_result_block(CommandResult.get)
 
     except FileNotFoundError:
         print("\n[!!] 致命错误: 'tmux' 命令未找到。请确保 tmux 已安装并位于您的 PATH 中。")
