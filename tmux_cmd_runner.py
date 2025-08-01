@@ -1,5 +1,6 @@
 import libtmux
 import os
+import re
 import time
 from functools import singledispatch
 from typing import Optional, List, Union, Tuple, Dict
@@ -135,6 +136,12 @@ def _execute_list(command_list: Union[List[str], Tuple[str]], term_instance: 'Tm
             return False
     return True
 
+def _word_to_regex(word: str) -> str:
+    """
+    将一个单词转换为一个正则表达式模式，该模式允许字符之间存在任意的空白（包括换行符）。
+    """
+    return r'\s*'.join(re.escape(c) for c in word)
+
 class TmuxTerminal:
     """一个使用全局策略驱动的、用于顺序执行命令的 tmux 会话管理器。"""
     def __init__(self, session_name: str, start_dir: Optional[str] = None):
@@ -167,43 +174,52 @@ class TmuxTerminal:
     
     def capture_clean_output(self) -> str:
         """
-        捕获并清理窗格输出，专门处理因命令过长而换行导致的残留问题。
+        捕获并清理窗格输出。
         """
         if not self._pane: return "[!!] 错误：无法捕获输出，因为 tmux 窗格不可用。"
         full_output: List[str] = self._pane.cmd("capture-pane", "-p", "-S-", "-E-").stdout
 
-        processed_lines = []
         lines_iter = iter(full_output)
-        junk_marker = ';echo "TMUX_CMD_EXIT_CODE_'
 
-        for line in lines_iter:
-            if line.strip().startswith("TMUX_CMD_EXIT_CODE_") and ":" in line:
-                continue
+        if not lines_iter:
+            return ""
 
-            if junk_marker in line:
-                clean_line = line.split(junk_marker)[0]
-                processed_lines.append(clean_line)
+        full_output = '\n'.join(lines_iter)
 
-                if 'tmux wait-for -S' in line:
-                    try:
-                        for next_line in lines_iter:
-                            if 'tmux-wait-' in next_line:
-                                break
-                    except StopIteration:
-                        pass
-                continue
+        # 定义标记命令的模式
+        command_part = (
+            r';'
+            r'\s*' + _word_to_regex('echo') + r'\s*'
+            r'"\s*' + _word_to_regex('TMUX_CMD_EXIT_CODE_') + r'.*?'
+            + re.escape(':$?') +
+            r'"'
+            r'\s*;\s*'
+            r'\s*' + _word_to_regex('tmux') + r'\s*'
+            r'\s*' + _word_to_regex('wait-for') + r'\s*'
+            r'-S\s*".*?"'
+        )
 
-            processed_lines.append(line)
+        # 定义标记输出的模式 (必须在行首)
+        output_part = (
+            r'^\s*'
+            + _word_to_regex('TMUX_CMD_EXIT_CODE_')
+            + r'.*?'
+            + r':'
+            + r'[\s\d]*'
+        )
 
-        final_output_lines = []
-        for i, line in enumerate(processed_lines):
-            stripped_line = line.strip()
-            if i > 0 and not stripped_line and not processed_lines[i-1].strip():
-                continue
-            final_output_lines.append(line)
+        # 构建原子块模式，包含三个捕获组
+        atomic_block_pattern = re.compile(
+            f"({command_part})"  # 组 1: 标记命令
+            f"(.*?)"             # 组 2: 真实输出 (我们想保留的内容)
+            f"({output_part})",  # 组 3: 标记输出
+            re.DOTALL | re.MULTILINE
+        )
 
-        return '\n'.join(final_output_lines).strip()
-
+        # 关键：使用回溯引用 r'\2' 替换整个区块，从而只保留真实输出
+        cleaned_text = atomic_block_pattern.sub(r'\2', full_output)
+        
+        return cleaned_text.strip()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         choice = input("运行完成，是否需要关闭此 Tmux 会话？(y/N): ").lower().strip()
@@ -240,8 +256,8 @@ def print_result_block(result_provider):
 
 if __name__ == "__main__":
     try:
-        with TmuxTerminal(session_name="hello") as term:
-            term.execute("date")
+        with TmuxTerminal(session_name="cmd-runner") as term:
+            term.execute(["find ~/Downloads -maxdepth 1 -type f -exec mv {} ~/Downloads/Misc/ \\;", "find ~/Downloads -maxdepth 1 -type d -not -name 'Images' -not -name 'Videos' -not -name 'Audio' -not -name 'Documents' -not -name 'Archives' -not -name 'Installers' -not -name 'Code_Projects' -not -name 'Minecraft_Stuff' -not -name 'Misc' -exec mv {} ~/Downloads/Misc/ \\;"])
             print_result_block(CommandResult.get)
 
     except FileNotFoundError:
